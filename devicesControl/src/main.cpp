@@ -1,18 +1,23 @@
+/*
+ * main.cpp — Waste Sorting Servo Controller
+ * Entry point — initialises Serial and delegates to servoControl.
+ */
+
 #include <Arduino.h>
+#include "servoControl.h"
 
-// put function declarations here:
-int myFunction(int, int);
+void setup()
+{
+    Serial.begin(115200);
+    while (!Serial) { delay(10); }
 
-void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+    Serial.println("[INIT] Waste Sorting Servo Controller");
+
+    servoControlInit();
 }
 
-void loop() {
-  // put your main code here, to run repeatedly:
-}
-
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+void loop()
+{
+    // All work runs in RTOS tasks
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
