@@ -33,4 +33,12 @@
 #define SERVO_TASK_PRIO            2     // Task priority
 #define SERVO_TASK_CORE            1     // Core affinity (1 = APP core)
 
+// ── Servo GPIO pins ──────────────────────────────────────────────
+#define SERVO_1_PIN  4   // First servo  (e.g. left side)
+#define SERVO_2_PIN  5   // Second servo (right side, facing first)
+
+// ── Optional Wired UART Fallback (if ESP-NOW is not used) ────────
+#define OPTIONAL_UART_RX  16
+#define OPTIONAL_UART_TX  17
+
 #endif // CONFIG_H

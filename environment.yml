@@ -1,0 +1,19 @@
+name: waste-sorting
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      # backend (waste_classifier_verllm/backend)
+      - fastapi
+      - uvicorn[standard]
+      - pydantic>=2
+      - pillow
+      - openai
+      - python-dotenv
+      # tests (fastapi.testclient needs httpx)
+      - pytest
+      - httpx
+      # sending test tags to the controller over USB serial
+      - pyserial

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 #include "../include/config.h"
-#include "../include/wasteClassifier.h"
+#include "../lib/wasteClassifier/wasteClassifier.h"
 
 // Simple lightweight assertion runner
 #define TEST_ASSERT(cond, msg) \

@@ -4,9 +4,16 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
 #include "config.h"
-#include "pinList.h"
 #include "wasteClassifier.h"
 #include "espNowComms.h"
+
+// ── Servo GPIO pins ──────────────────────────────────────────────
+#define SERVO_1_PIN  4   // First servo  (e.g. left side)
+#define SERVO_2_PIN  5   // Second servo (right side, facing first)
+
+// ── Optional Wired UART Fallback (if ESP-NOW is not used) ────────
+#define OPTIONAL_UART_RX  16
+#define OPTIONAL_UART_TX  17
 
 /**
  * @brief Initialize both servos, ESP-NOW wireless communication,
