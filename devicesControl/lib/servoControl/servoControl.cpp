@@ -13,9 +13,7 @@
 #include <ESP32Servo.h>
 #include "config.h"
 #include "wasteClassifier.h"
-#if !SERIAL_ONLY_MODE
 #include "espNowComms.h"
-#endif
 
 // ── Module-private state ────────────────────────────────────────
 static Servo sortingServo;
@@ -181,14 +179,10 @@ void servoControlInit()
     sortingServo.write(SERVO_HOME_ANGLE);
     Serial.printf("[INIT] Sorting servo on GPIO %d (Home: %d°)\n", SERVO_PIN, SERVO_HOME_ANGLE);
 
-    // 3. Initialize ESP-NOW wireless communication (skip in Serial-only mode)
-#if !SERIAL_ONLY_MODE
+    // 3. Initialize ESP-NOW wireless communication
     if (!espNowCommsInit()) {
         Serial.println(F("[ERR]  ESP-NOW initialization failed!"));
     }
-#else
-    Serial.println(F("[INIT] Serial-only mode active (ESP-NOW disabled)"));
-#endif
 
     // Print command menu
     printHelp();
@@ -199,9 +193,7 @@ void servoControlInit()
 // ─────────────────────────────────────────────────────────────────
 void servoControlLoop()
 {
-#if !SERIAL_ONLY_MODE
     WasteSortPacket packet;
-#endif
     static char bufUSB[64];
     static size_t idxUSB = 0;
     static uint32_t lastHeartbeatMs = 0;
@@ -213,7 +205,6 @@ void servoControlLoop()
     }
 
     // 1. Check for incoming packets from ESP-NOW queue
-#if !SERIAL_ONLY_MODE
     if (wasteQueue != nullptr && xQueueReceive(wasteQueue, &packet, 0) == pdPASS)
     {
         Serial.printf("[ESP-NOW] Received packet #%u with tag: \"%s\"\n",
@@ -221,7 +212,6 @@ void servoControlLoop()
         sortWasteByTag(packet.tag);
         Serial.print(F("\nEnter command: "));
     }
-#endif
 
     // 2. Check for manual developer input from USB Serial
     if (readLineFromStream(Serial, bufUSB, sizeof(bufUSB), idxUSB))

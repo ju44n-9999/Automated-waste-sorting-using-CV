@@ -19,11 +19,6 @@
 // NOTE: All angle logic assumes POSITIONAL 180° servos. "360°" servos are
 // continuous-rotation: write() sets speed (90 = stop), so angles won't work.
 
-// ── Operating Mode ──────────────────────────────────────────────
-// Set to true to skip ESP-NOW and use USB Serial commands only.
-// Set to false to enable full ESP-NOW + Serial dual-input mode.
-#define SERIAL_ONLY_MODE           true
-
 // ── ESP-NOW Wireless Communication ──────────────────────────────
 #define ESPNOW_WIFI_CHANNEL        1     // WiFi channel for ESP-NOW (must match CV sender)
 #define WASTE_QUEUE_LENGTH        10     // Max pending waste items buffered in FreeRTOS queue
