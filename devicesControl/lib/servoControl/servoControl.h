@@ -2,38 +2,29 @@
 #define SERVO_CONTROL_H
 
 #include <Arduino.h>
-#include <ESP32Servo.h>
-#include "config.h"
-#include "wasteClassifier.h"
-#include "espNowComms.h"
-
-// ── Servo GPIO pins ──────────────────────────────────────────────
-#define SERVO_1_PIN  4   // First servo  (e.g. left side)
-#define SERVO_2_PIN  5   // Second servo (right side, facing first)
-
-// ── Optional Wired UART Fallback (if ESP-NOW is not used) ────────
-#define OPTIONAL_UART_RX  16
-#define OPTIONAL_UART_TX  17
 
 /**
- * @brief Initialize both servos, ESP-NOW wireless communication,
- *        and spawn the FreeRTOS processing task.
+ * @brief Initialize single sorting servo, PWM timer, and communications.
  */
 void servoControlInit();
 
 /**
- * @brief FreeRTOS task: consumes packets from ESP-NOW queue and USB serial
- *        to actuate the waste sorting servos.
+ * @brief Main periodic service loop to be invoked in Arduino loop().
+ *        Handles USB Serial command input and pending ESP-NOW packets.
  */
-void servoListenTask(void *pvParameters);
+void servoControlLoop();
 
 /**
- * @brief Actuate servos to the assigned angle for a detected tag,
- *        hold for duration, and return home.
- * 
- * @param tag Detected tag ("METAL", "PLASTICS", "PAPER")
- * @return true if valid tag was recognized and executed
+ * @brief Move servo to the angle for a waste tag, hold SERVO_HOLD_MS, return home.
+ * @param tag "METAL", "PLASTICS", "PAPER", etc. (case-insensitive)
+ * @return true if the tag was recognized and the cycle ran
  */
 bool sortWasteByTag(const String &tag);
+
+/**
+ * @brief Smoothly move single servo to target angle and hold.
+ * @param targetAngle 0..180, clamped
+ */
+void moveToAngle(int targetAngle);
 
 #endif // SERVO_CONTROL_H

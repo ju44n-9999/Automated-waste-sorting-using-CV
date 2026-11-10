@@ -1,68 +1,142 @@
 /*
  * servoControl.cpp
  * ────────────────
- * Command-driven dual-servo controller for automated waste sorting via ESP-NOW.
+ * Command-driven single-servo controller for automated waste sorting.
+ * Implemented using the Arduino framework lifecycle (setup / loop).
  *
  * Receives waste classification packets ("METAL", "PLASTICS", "PAPER") wirelessly
- * from the CV ESP32 via ESP-NOW into a FreeRTOS queue.
- *
- * Synchronizes two facing servos to move in the exact same physical direction:
- *   - Servo 1: target angle
- *   - Servo 2: 180 - target angle (mirrored)
+ * from the CV ESP32 via ESP-NOW, OR accepts manual commands and raw angles (0-180)
+ * directly via USB Serial Monitor.
  */
 
 #include "servoControl.h"
+#include <ESP32Servo.h>
+#include "config.h"
+#include "wasteClassifier.h"
+#if !SERIAL_ONLY_MODE
+#include "espNowComms.h"
+#endif
 
 // ── Module-private state ────────────────────────────────────────
-static Servo servo1;
-static Servo servo2;
-static TaskHandle_t servoTaskHandle = nullptr;
+static Servo sortingServo;
 static int currentServoAngle = SERVO_HOME_ANGLE;
 
-// ── Smooth move helper ──────────────────────────────────────────
-static void smoothMove(int fromAngle, int toAngle)
-{
-    if (fromAngle == toAngle) {
-        servo1.write(toAngle);
-        servo2.write(calculateMirroredAngle(toAngle));
-        return;
-    }
+static constexpr uint32_t SWEEP_PAUSE_MS = 1200;
+static constexpr uint32_t SERIAL_IDLE_TIMEOUT_MS = 300;
+static constexpr uint32_t HEARTBEAT_MS = 10000;
+static constexpr unsigned int MAX_ANGLE_DIGITS = 3;
 
-    int current = fromAngle;
-    int step = (toAngle > fromAngle) ? SERVO_STEP_DEG : -SERVO_STEP_DEG;
+// ── Helper: check if a string is a short non-negative integer ───
+static bool isNumeric(const String &str)
+{
+    if (str.length() == 0 || str.length() > MAX_ANGLE_DIGITS) return false;
+    for (unsigned int i = 0; i < str.length(); ++i) {
+        if (!isDigit(str.charAt(i))) return false;
+    }
+    return true;
+}
+
+// ── Smooth move helper: steps the single servo from current to target angle ──
+static void smoothMoveTo(int toAngle)
+{
+    const int step = (toAngle > currentServoAngle) ? SERVO_STEP_DEG : -SERVO_STEP_DEG;
+    int current = currentServoAngle;
 
     while (current != toAngle)
     {
         current += step;
-
-        if ((step > 0 && current > toAngle) ||
-            (step < 0 && current < toAngle)) {
+        if ((step > 0 && current > toAngle) || (step < 0 && current < toAngle)) {
             current = toAngle;
         }
-
-        servo1.write(current);
-        servo2.write(calculateMirroredAngle(current));
-
-        vTaskDelay(pdMS_TO_TICKS(SERVO_STEP_MS));
+        sortingServo.write(current);
+        delay(SERVO_STEP_MS);
     }
+    currentServoAngle = toAngle;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  moveToAngle — Move single servo to physical angle and HOLD
+// ─────────────────────────────────────────────────────────────────
+void moveToAngle(int targetAngle)
+{
+    if (targetAngle < SERVO_MIN_ANGLE) targetAngle = SERVO_MIN_ANGLE;
+    if (targetAngle > SERVO_MAX_ANGLE) targetAngle = SERVO_MAX_ANGLE;
+
+    Serial.printf("[SERVO] Moving to %d°\n", targetAngle);
+    smoothMoveTo(targetAngle);
+    Serial.printf("[SERVO] Position reached: %d° (holding position).\n", targetAngle);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  sweepTest — Automated test sweep across key positions
+// ─────────────────────────────────────────────────────────────────
+static void sweepTest()
+{
+    Serial.println(F("\n[SWEEP] ── Starting Single-Servo Sweep Test ──"));
+    const int sweepAngles[] = {SERVO_HOME_ANGLE, ANGLE_METAL, ANGLE_PLASTICS, ANGLE_PAPER,
+                               135, SERVO_MAX_ANGLE, SERVO_HOME_ANGLE};
+    const size_t count = sizeof(sweepAngles) / sizeof(sweepAngles[0]);
+
+    for (size_t i = 0; i < count; ++i) {
+        Serial.printf("[SWEEP] Step %u/%u\n", (unsigned)(i + 1), (unsigned)count);
+        moveToAngle(sweepAngles[i]);
+        delay(SWEEP_PAUSE_MS);
+    }
+    Serial.println(F("[SWEEP] Sweep test complete!\n"));
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  printHelp — Display available Serial commands
+// ─────────────────────────────────────────────────────────────────
+static void printHelp()
+{
+    Serial.println(F("\n╔═════════════════════════════════════════════════════════════════╗"));
+    Serial.println(F("║            SINGLE SERVO CONTROLLER — SERIAL COMMANDS            ║"));
+    Serial.println(F("╠═════════════════════════════════════════════════════════════════╣"));
+    Serial.println(F("║  Commands:                                                      ║"));
+    Serial.println(F("║    • METAL      -> Sort cycle for METAL (20° hold 1.5s -> home) ║"));
+    Serial.println(F("║    • PLASTICS   -> Sort cycle for PLASTICS (45° hold -> home)   ║"));
+    Serial.println(F("║    • PAPER      -> Sort cycle for PAPER (90° hold -> home)      ║"));
+    Serial.println(F("║    • 0 - 180    -> Move to exact angle & HOLD position          ║"));
+    Serial.println(F("║                    (e.g., '0', '20', '45', '90', '180')         ║"));
+    Serial.println(F("║    • HOME       -> Move directly to rest position (0°)          ║"));
+    Serial.println(F("║    • SWEEP      -> Run automatic sweep through all angles       ║"));
+    Serial.println(F("║    • HELP       -> Show this menu                               ║"));
+    Serial.println(F("╚═════════════════════════════════════════════════════════════════╝"));
+    Serial.print(F("Enter command: "));
 }
 
 // ── Helper to read a line from USB Serial non-blockingly ────────
 static bool readLineFromStream(Stream &stream, char *buffer, size_t maxLen, size_t &idx)
 {
+    static uint32_t lastCharTime = 0;
+
     while (stream.available() > 0)
     {
         char c = (char)stream.read();
+        lastCharTime = millis();
+
         if (c == '\n' || c == '\r') {
             if (idx > 0) {
                 buffer[idx] = '\0';
                 idx = 0;
                 return true;
             }
+        } else if (c == '\b' || c == 127) { // Handle backspace
+            if (idx > 0) idx--;
         } else if (idx < maxLen - 1) {
             buffer[idx++] = c;
         }
     }
+
+    // Inactivity timeout: if user typed text but terminal sent no newline,
+    // process after 300ms idle so "No line ending" mode still works seamlessly.
+    if (idx > 0 && (millis() - lastCharTime > SERIAL_IDLE_TIMEOUT_MS)) {
+        buffer[idx] = '\0';
+        idx = 0;
+        return true;
+    }
+
     return false;
 }
 
@@ -77,24 +151,16 @@ bool sortWasteByTag(const String &tag)
         return false;
     }
 
-    int mirroredTarget = calculateMirroredAngle(targetAngle);
-    Serial.printf("[SORT] Detected \"%s\" -> Moving to %d° (Servo1=%d°, Servo2=%d°)\n",
-                  tag.c_str(), targetAngle, targetAngle, mirroredTarget);
+    Serial.printf("[SORT] Detected \"%s\" -> Moving to %d°\n", tag.c_str(), targetAngle);
+    smoothMoveTo(targetAngle);
 
-    // 1. Move to sort bin position
-    smoothMove(currentServoAngle, targetAngle);
-    currentServoAngle = targetAngle;
-
-    // 2. Hold at sort position
     Serial.printf("[SORT] Holding for %d ms...\n", SERVO_HOLD_MS);
-    vTaskDelay(pdMS_TO_TICKS(SERVO_HOLD_MS));
+    delay(SERVO_HOLD_MS);
 
-    // 3. Return to home position
     Serial.printf("[SORT] Returning to home position (%d°)...\n", SERVO_HOME_ANGLE);
-    smoothMove(currentServoAngle, SERVO_HOME_ANGLE);
-    currentServoAngle = SERVO_HOME_ANGLE;
+    smoothMoveTo(SERVO_HOME_ANGLE);
 
-    Serial.println("[SORT] Ready for next item.");
+    Serial.println(F("[SORT] Ready for next item."));
     return true;
 }
 
@@ -103,68 +169,99 @@ bool sortWasteByTag(const String &tag)
 // ─────────────────────────────────────────────────────────────────
 void servoControlInit()
 {
-    // 1. Attach and park servos
-    servo1.attach(SERVO_1_PIN);
-    servo2.attach(SERVO_2_PIN);
+    // 1. Hardware PWM Timer Allocation for ESP32-S3
+    ESP32PWM::allocateTimer(0);
+    sortingServo.setPeriodHertz(50);
+
+    // 2. Attach single servo with full 500us - 2500us pulse range
+    Serial.printf("[INIT] Attaching sorting servo on GPIO %d...\n", SERVO_PIN);
+    sortingServo.attach(SERVO_PIN, 500, 2500);
 
     currentServoAngle = SERVO_HOME_ANGLE;
-    servo1.write(SERVO_HOME_ANGLE);
-    servo2.write(calculateMirroredAngle(SERVO_HOME_ANGLE));
+    sortingServo.write(SERVO_HOME_ANGLE);
+    Serial.printf("[INIT] Sorting servo on GPIO %d (Home: %d°)\n", SERVO_PIN, SERVO_HOME_ANGLE);
 
-    Serial.printf("[INIT] Servo 1 on GPIO %d (Home: %d°)\n", SERVO_1_PIN, SERVO_HOME_ANGLE);
-    Serial.printf("[INIT] Servo 2 on GPIO %d (Home: %d°)\n", SERVO_2_PIN, calculateMirroredAngle(SERVO_HOME_ANGLE));
-
-    // 2. Initialize ESP-NOW wireless communication
+    // 3. Initialize ESP-NOW wireless communication (skip in Serial-only mode)
+#if !SERIAL_ONLY_MODE
     if (!espNowCommsInit()) {
-        Serial.println("[ERR]  ESP-NOW initialization failed!");
+        Serial.println(F("[ERR]  ESP-NOW initialization failed!"));
     }
+#else
+    Serial.println(F("[INIT] Serial-only mode active (ESP-NOW disabled)"));
+#endif
 
-    // 3. Spawn FreeRTOS listener task
-    BaseType_t ok = xTaskCreatePinnedToCore(
-        servoListenTask,
-        "ServoListen",
-        SERVO_TASK_STACK,
-        nullptr,
-        SERVO_TASK_PRIO,
-        &servoTaskHandle,
-        SERVO_TASK_CORE
-    );
-
-    if (ok != pdPASS) {
-        Serial.println("[ERR]  Failed to create ServoListen FreeRTOS task!");
-    } else {
-        Serial.println("[INIT] ServoListen FreeRTOS task running on core 1");
-    }
+    // Print command menu
+    printHelp();
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  servoListenTask
+//  servoControlLoop — Called from Arduino loop()
 // ─────────────────────────────────────────────────────────────────
-void servoListenTask(void * /* pvParameters */)
+void servoControlLoop()
 {
+#if !SERIAL_ONLY_MODE
     WasteSortPacket packet;
+#endif
     static char bufUSB[64];
     static size_t idxUSB = 0;
+    static uint32_t lastHeartbeatMs = 0;
 
-    for (;;)
+    // Periodic heartbeat log
+    if (millis() - lastHeartbeatMs >= HEARTBEAT_MS) {
+        lastHeartbeatMs = millis();
+        Serial.println(F("[HEARTBEAT] Controller alive. Type METAL / PLASTICS / PAPER / angle / HOME / SWEEP / HELP"));
+    }
+
+    // 1. Check for incoming packets from ESP-NOW queue
+#if !SERIAL_ONLY_MODE
+    if (wasteQueue != nullptr && xQueueReceive(wasteQueue, &packet, 0) == pdPASS)
     {
-        // 1. Check for incoming packets from ESP-NOW FreeRTOS queue
-        if (wasteQueue != nullptr && xQueueReceive(wasteQueue, &packet, pdMS_TO_TICKS(20)) == pdPASS)
-        {
-            Serial.printf("[ESP-NOW] Received packet #%u with tag: \"%s\"\n",
-                          packet.messageId, packet.tag);
-            sortWasteByTag(packet.tag);
-        }
+        Serial.printf("[ESP-NOW] Received packet #%u with tag: \"%s\"\n",
+                      packet.messageId, packet.tag);
+        sortWasteByTag(packet.tag);
+        Serial.print(F("\nEnter command: "));
+    }
+#endif
 
-        // 2. Check for manual developer input from USB Serial
-        if (readLineFromStream(Serial, bufUSB, sizeof(bufUSB), idxUSB))
+    // 2. Check for manual developer input from USB Serial
+    if (readLineFromStream(Serial, bufUSB, sizeof(bufUSB), idxUSB))
+    {
+        String cmd = String(bufUSB);
+        cmd.trim();
+
+        if (cmd.length() > 0)
         {
-            String tag = String(bufUSB);
-            tag.trim();
-            if (tag.length() > 0) {
-                Serial.printf("[USB-MANUAL] Received tag: \"%s\"\n", tag.c_str());
-                sortWasteByTag(tag);
+            Serial.printf("\n>> Command: \"%s\"\n", cmd.c_str());
+
+            if (cmd.equalsIgnoreCase("HELP") || cmd.equals("?")) {
+                printHelp();
             }
+            else if (cmd.equalsIgnoreCase("HOME") || cmd.equalsIgnoreCase("REST")) {
+                moveToAngle(SERVO_HOME_ANGLE);
+            }
+            else if (cmd.equalsIgnoreCase("SWEEP") || cmd.equalsIgnoreCase("TEST")) {
+                sweepTest();
+            }
+            else if (tagToAngle(cmd) >= 0) {
+                sortWasteByTag(cmd);
+            }
+            else if (isNumeric(cmd)) {
+                int angle = cmd.toInt();
+                if (angle >= SERVO_MIN_ANGLE && angle <= SERVO_MAX_ANGLE) {
+                    moveToAngle(angle);
+                } else {
+                    Serial.printf("[WARN] Angle %d out of range [%d..%d]\n",
+                                  angle, SERVO_MIN_ANGLE, SERVO_MAX_ANGLE);
+                }
+            }
+            else {
+                Serial.printf("[WARN] Unknown command: \"%s\". Type HELP for commands.\n", cmd.c_str());
+            }
+
+            Serial.print(F("\nEnter command: "));
         }
     }
+
+    // Short cooperative yield for ESP32 background tasks (WiFi, watchdog)
+    delay(10);
 }
