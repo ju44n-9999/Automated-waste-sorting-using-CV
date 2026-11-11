@@ -7,3 +7,7 @@
 .agents
 .gemini
 AGENTS.md
+*.docx
+PROMPTS.md
+.claude
+CLAUDE.md

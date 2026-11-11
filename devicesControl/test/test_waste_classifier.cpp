@@ -22,6 +22,8 @@ int main()
     TEST_ASSERT(tagToAngle("PLASTICS") == 45, "Tag 'PLASTICS' must return 45 degrees");
     TEST_ASSERT(tagToAngle("PLASTIC") == 45, "Tag 'PLASTIC' must return 45 degrees");
     TEST_ASSERT(tagToAngle("PAPER") == 90, "Tag 'PAPER' must return 90 degrees");
+    TEST_ASSERT(tagToAngle("paper_cardboard") == 90, "Tag 'paper_cardboard' must return 90 degrees");
+    TEST_ASSERT(tagToAngle("CARDBOARD") == 90, "Tag 'CARDBOARD' must return 90 degrees");
 
     // ── Test 2: Case insensitivity ──
     TEST_ASSERT(tagToAngle("metal") == 20, "Tag 'metal' lowercase must return 20");
@@ -47,6 +49,6 @@ int main()
     TEST_ASSERT(calculateMirroredAngle(90) == 90, "Servo1=90 (PAPER) -> Servo2=90");
     TEST_ASSERT(calculateMirroredAngle(180) == 0, "Servo1=180 -> Servo2=0");
 
-    std::cout << "All 18 unit tests PASSED successfully!\n";
+    std::cout << "All 20 unit tests PASSED successfully!\n";
     return 0;
 }

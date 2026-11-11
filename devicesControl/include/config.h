@@ -16,13 +16,8 @@
 #define SERVO_STEP_MS     10     // Milliseconds between steps
 #define SERVO_HOLD_MS   1500     // Hold at target before returning home
 
-// ── MG90S 360° Servo Safety Configuration ───────────────────────
-// IMPORTANT: Commercial "MG90S 360°" servos are almost always Continuous
-// Rotation (CR) servos, NOT positional.
-//   - On a CR servo: 90 = STOP, 0 = Full CCW speed, 180 = Full CW speed.
-//   - On a true positional 180° servo: 0-180 represents absolute physical angle.
-// If your MG90S is continuous rotation, set this to true to enable speed-stop logic.
-#define SERVO_IS_CONTINUOUS_360    false
+// NOTE: All angle logic assumes POSITIONAL 180° servos. "360°" servos are
+// continuous-rotation: write() sets speed (90 = stop), so angles won't work.
 
 // ── ESP-NOW Wireless Communication ──────────────────────────────
 #define ESPNOW_WIFI_CHANNEL        1     // WiFi channel for ESP-NOW (must match CV sender)
@@ -33,12 +28,8 @@
 #define SERVO_TASK_PRIO            2     // Task priority
 #define SERVO_TASK_CORE            1     // Core affinity (1 = APP core)
 
-// ── Servo GPIO pins ──────────────────────────────────────────────
-#define SERVO_1_PIN  4   // First servo  (e.g. left side)
-#define SERVO_2_PIN  5   // Second servo (right side, facing first)
-
-// ── Optional Wired UART Fallback (if ESP-NOW is not used) ────────
-#define OPTIONAL_UART_RX  16
-#define OPTIONAL_UART_TX  17
+// ── Servo GPIO pin ───────────────────────────────────────────────
+#define SERVO_PIN    5   // Single sorting servo pin
+#define SERVO_1_PIN  SERVO_PIN // Backwards-compatible alias
 
 #endif // CONFIG_H
