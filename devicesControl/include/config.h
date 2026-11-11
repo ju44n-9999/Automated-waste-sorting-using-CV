@@ -25,7 +25,15 @@
 #define SERVO_IS_CONTINUOUS_360    false
 
 // ── ESP-NOW Wireless Communication ──────────────────────────────
-#define ESPNOW_WIFI_CHANNEL        1     // WiFi channel for ESP-NOW (must match CV sender)
+// The camera broadcasts on whatever channel its hotspot uses (6 on its own,
+// or the router's channel once it joins home Wi-Fi). The controller scans for
+// the hotspot by name, tunes to its channel, and only accepts that camera's packets.
+// Each group in a classroom must give its camera a unique AP_SSID (wifi_config.h)
+// and put the same name here.
+#define CAMERA_AP_SSID      "WasteCamera"
+#define ESPNOW_WIFI_CHANNEL        6     // Fallback channel until the camera is found
+#define CAMERA_SCAN_RETRY_MS   10000     // Full rescan interval while the camera is not found
+#define CAMERA_CHECK_MS        30000     // Re-check that the camera is still on our channel
 #define WASTE_QUEUE_LENGTH        10     // Max pending waste items buffered in FreeRTOS queue
 
 // ── FreeRTOS task settings ──────────────────────────────────────

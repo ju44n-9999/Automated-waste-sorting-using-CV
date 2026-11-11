@@ -10,7 +10,7 @@ Two ESP32-S3 boards that talk over ESP-NOW (no router needed between them):
    - On-device TFLite model (`model_data.cpp`, INT8 128×128×3 → 3 logits, 4 MB arena in PSRAM).
    - Groq vision LLM called directly from the board over HTTPS (`llm_config.h`). Rate limits / cooldown (`LLM_CAPTURE_INTERVAL_MS`, 429 `Retry-After`) fall back to the local model.
    - Physical capture button on GPIO 14 (active LOW, internal pull-up) and a WS2812B status LED on GPIO 3, driven by its own FreeRTOS task (`ledTask`): slow red blink = booting, steady red = no station Wi-Fi (hotspot-only counts), yellow = analyzing, green = ready, fast red blink = failed analysis or camera/model fault. All capture paths go through `classifyWithLed()`. Camera uses GPIO 4–13, 15–18 (4/5 = SCCB), so don't put peripherals there.
-   - Also serves a web UI (`web_page.h`) with `/classify`, snapshot and pause/resume endpoints. With empty `WIFI_SSID` in `wifi_config.h` it runs its own `WasteCamera` hotspot on channel 6.
+   - Also serves a web UI (`web_page.h`) with `/classify`, snapshot and pause/resume endpoints. Router credentials are saved in NVS from the `/wifi` page (`WIFI_SSID`/`WIFI_PASSWORD` in `wifi_config.h` are unused). The `AP_SSID` hotspot is always up: on channel 6 alone, or on the router's channel once joined (AP+STA). With no saved network, or if joining fails at boot, it drops to AP-only and never retries until reboot.
 2. **Sorting controller** — `devicesControl/` (PlatformIO). Receives tags, drives two facing servos to a per-material angle, holds, returns home.
 
 `waste_classifier_verllm/backend/` is a separate FastAPI service (`/health`, `POST /classify`) offering the same classification via Groq or OpenAI with a persisted quota (`quota.py`, SQLite). The camera firmware does **not** currently call it; it talks to Groq directly. Backend config is env-driven (`MOCK_MODE` defaults to `true`, `LLM_PROVIDER`, `GROQ_MODEL`, `DEVICE_TOKEN`, `GROQ_MAX_CALLS_24H`, …; see `Settings.from_env` in `app.py`).
@@ -61,9 +61,10 @@ Upload fails with "port is busy" when a serial monitor (e.g. the VS Code Platfor
 - Hardware: servos on GPIO 4 and 5 need their own 5–6 V supply with common ground; powering them from the board causes `BROWNOUT_RST` boot loops.
 - Angles assume positional 180° servos. `SERVO_IS_CONTINUOUS_360` in `config.h` is not read by any code yet; on 360° (continuous) servos `write()` sets speed (90 = stop), so the angle logic does not work.
 
-## Known integration gaps (camera → controller)
+## Camera → controller link
 
-These are unresolved; check before assuming end-to-end works:
-- **Packet format mismatch.** Camera sends packed `WastePacket {char magic[6]="WASTE"; uint32 capture_id; float score; uint32 inference_ms; char label[16]}` (34 bytes). Controller expects `WasteSortPacket {char tag[16]; uint32 messageId}` (20 bytes); on size mismatch it treats the bytes as a raw string, so the tag becomes `"WASTE"`.
-- **Label mismatch.** Camera labels are `plastic`, `metal`, `paper_cardboard`; controller accepts `METAL`, `PLASTIC(S)`, `PAPER` (case-insensitive). `paper_cardboard` is rejected.
-- **Channel.** Camera stays on Wi-Fi channel 6; controller's `ESPNOW_WIFI_CHANNEL` (1) is defined but never applied.
+- Camera broadcasts the packed 34-byte `WastePacket {char magic[6]="WASTE"; uint32 capture_id; float score; uint32 inference_ms; char label[16]}` from its **AP interface** (`peer.ifidx = WIFI_IF_AP`), so the sender MAC equals the hotspot BSSID. `score` is -1 for LLM results.
+- Controller (`espNowComms`) mirrors it as `CameraPacket`, also accepts the legacy 20-byte `WasteSortPacket` and raw strings. Labels `plastic`, `metal`, `paper_cardboard` map to angles in `tagToAngle`.
+- Channel: controller scans for `CAMERA_AP_SSID` (`config.h`, must equal camera `AP_SSID`), tunes to its channel and then drops packets from any other MAC. `scanTask` rescans every 10 s until found, then checks the current channel every 30 s and rescans if the camera moved. Serial command `SCAN` forces a rescan. Until found it sits on `ESPNOW_WIFI_CHANNEL` (6) and accepts any sender.
+- In a classroom every group needs a unique `AP_SSID`, otherwise controllers may lock onto another group's camera.
+- Both projects pin the same pioarduino platform (Arduino core 3.2.1). An unpinned `platform = espressif32` resolves to whatever is installed and the ESP-NOW callback signature differs between core 2.x and 3.x.

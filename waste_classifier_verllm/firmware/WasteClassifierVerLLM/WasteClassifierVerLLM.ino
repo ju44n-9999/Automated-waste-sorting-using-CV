@@ -377,6 +377,10 @@ void initEspNow() {
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, espnow_broadcast, 6);
   peer.channel = 0;
+  // The hotspot is up in every Wi-Fi mode, so sending from it always works (in AP-only
+  // mode the STA interface is off and sends would fail with ESP_ERR_ESPNOW_IF). It also
+  // makes the sender MAC equal the hotspot BSSID, which the controller locks onto.
+  peer.ifidx = WIFI_IF_AP;
   peer.encrypt = false;
   if (esp_now_add_peer(&peer) != ESP_OK) { Serial.println("ESP-NOW broadcast peer failed"); return; }
   espnow_ready = true;

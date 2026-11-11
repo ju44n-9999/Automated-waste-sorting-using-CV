@@ -15,7 +15,7 @@
  * Rules:
  *   - "METAL"    -> 20 degrees
  *   - "PLASTICS" -> 45 degrees (also accepts "PLASTIC")
- *   - "PAPER"    -> 90 degrees
+ *   - "PAPER"    -> 90 degrees (also accepts "PAPER_CARDBOARD", "CARDBOARD")
  * 
  * @param tag String or C-string tag (case-insensitive, trims whitespace)
  * @return int Target angle (20, 45, 90), or -1 if unknown

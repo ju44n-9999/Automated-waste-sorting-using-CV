@@ -3,7 +3,7 @@
  * ────────────────
  * Command-driven dual-servo controller for automated waste sorting via ESP-NOW.
  *
- * Receives waste classification packets ("METAL", "PLASTICS", "PAPER") wirelessly
+ * Receives waste classification packets ("metal", "plastic", "paper_cardboard") wirelessly
  * from the CV ESP32 via ESP-NOW into a FreeRTOS queue.
  *
  * Synchronizes two facing servos to move in the exact same physical direction:
@@ -161,7 +161,9 @@ void servoListenTask(void * /* pvParameters */)
         {
             String tag = String(bufUSB);
             tag.trim();
-            if (tag.length() > 0) {
+            if (tag.equalsIgnoreCase("SCAN")) {
+                espNowRequestRescan();
+            } else if (tag.length() > 0) {
                 Serial.printf("[USB-MANUAL] Received tag: \"%s\"\n", tag.c_str());
                 sortWasteByTag(tag);
             }

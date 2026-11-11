@@ -47,7 +47,9 @@ int tagToAngle(const char* tag)
     if (caseInsensitiveEquals(cleanTag, "PLASTICS") || caseInsensitiveEquals(cleanTag, "PLASTIC")) {
         return ANGLE_PLASTICS;
     }
-    if (caseInsensitiveEquals(cleanTag, "PAPER")) {
+    // The camera sends "paper_cardboard"
+    if (caseInsensitiveEquals(cleanTag, "PAPER") || caseInsensitiveEquals(cleanTag, "PAPER_CARDBOARD") ||
+        caseInsensitiveEquals(cleanTag, "CARDBOARD")) {
         return ANGLE_PAPER;
     }
     return -1;

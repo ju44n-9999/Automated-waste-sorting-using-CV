@@ -23,6 +23,12 @@ int main()
     TEST_ASSERT(tagToAngle("PLASTIC") == 45, "Tag 'PLASTIC' must return 45 degrees");
     TEST_ASSERT(tagToAngle("PAPER") == 90, "Tag 'PAPER' must return 90 degrees");
 
+    // ── Test 1b: Labels sent by the camera firmware ──
+    TEST_ASSERT(tagToAngle("metal") == 20, "Camera label 'metal' must return 20");
+    TEST_ASSERT(tagToAngle("plastic") == 45, "Camera label 'plastic' must return 45");
+    TEST_ASSERT(tagToAngle("paper_cardboard") == 90, "Camera label 'paper_cardboard' must return 90");
+    TEST_ASSERT(tagToAngle("CARDBOARD") == 90, "Tag 'CARDBOARD' must return 90");
+
     // ── Test 2: Case insensitivity ──
     TEST_ASSERT(tagToAngle("metal") == 20, "Tag 'metal' lowercase must return 20");
     TEST_ASSERT(tagToAngle("Plastics") == 45, "Tag 'Plastics' mixed-case must return 45");
@@ -47,6 +53,6 @@ int main()
     TEST_ASSERT(calculateMirroredAngle(90) == 90, "Servo1=90 (PAPER) -> Servo2=90");
     TEST_ASSERT(calculateMirroredAngle(180) == 0, "Servo1=180 -> Servo2=0");
 
-    std::cout << "All 18 unit tests PASSED successfully!\n";
+    std::cout << "All 22 unit tests PASSED successfully!\n";
     return 0;
 }
