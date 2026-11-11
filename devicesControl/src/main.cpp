@@ -1,6 +1,6 @@
 /*
  * main.cpp — Waste Sorting Servo Controller
- * Entry point — initialises Serial and delegates to servoControl.
+ * Arduino framework entry point (setup and loop).
  */
 
 #include <Arduino.h>
@@ -9,15 +9,13 @@
 void setup()
 {
     Serial.begin(115200);
-    while (!Serial) { delay(10); }
+    delay(500); // Allow serial connection to stabilize
 
-    Serial.println("[INIT] Waste Sorting Servo Controller");
-
+    Serial.println(F("\n[INIT] Waste Sorting Servo Controller starting..."));
     servoControlInit();
 }
 
 void loop()
 {
-    // All work runs in RTOS tasks
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    servoControlLoop();
 }

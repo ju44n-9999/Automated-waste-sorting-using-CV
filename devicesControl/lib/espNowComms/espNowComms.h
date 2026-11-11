@@ -16,6 +16,17 @@ typedef struct __attribute__((packed)) {
     uint32_t messageId;    // Sequential ID or timestamp
 } WasteSortPacket;
 
+/**
+ * @brief Packet structure sent by camera firmware (WasteClassifierVerLLM)
+ */
+typedef struct __attribute__((packed)) {
+    char magic[6];          // "WASTE"
+    uint32_t capture_id;
+    float score;
+    uint32_t inference_ms;
+    char label[MAX_TAG_LEN];
+} CameraWastePacket;
+
 // FreeRTOS queue for decoupling high-priority ESP-NOW callback from servo actuation
 extern QueueHandle_t wasteQueue;
 

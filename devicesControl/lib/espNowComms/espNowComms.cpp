@@ -1,4 +1,5 @@
 #include "espNowComms.h"
+#include <esp_wifi.h>
 
 QueueHandle_t wasteQueue = nullptr;
 
@@ -15,8 +16,16 @@ static void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_le
     WasteSortPacket packet;
     memset(&packet, 0, sizeof(packet));
 
-    if (data_len == sizeof(WasteSortPacket)) {
+    if (data_len == sizeof(CameraWastePacket) ||
+        (data_len >= 6 && memcmp(data, "WASTE", 5) == 0 && data_len >= (int)sizeof(CameraWastePacket))) {
+        CameraWastePacket camPacket;
+        memcpy(&camPacket, data, sizeof(CameraWastePacket));
+        camPacket.label[MAX_TAG_LEN - 1] = '\0';
+        strncpy(packet.tag, camPacket.label, sizeof(packet.tag) - 1);
+        packet.messageId = camPacket.capture_id;
+    } else if (data_len == sizeof(WasteSortPacket)) {
         memcpy(&packet, data, sizeof(WasteSortPacket));
+        packet.tag[MAX_TAG_LEN - 1] = '\0'; // sender may fill all 16 bytes
     } else {
         // Fallback for raw string payloads from CV board
         int copyLen = (data_len < (int)(MAX_TAG_LEN - 1)) ? data_len : (int)(MAX_TAG_LEN - 1);
@@ -25,11 +34,8 @@ static void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_le
         packet.messageId = 0;
     }
 
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(wasteQueue, &packet, &xHigherPriorityTaskWoken);
-    if (xHigherPriorityTaskWoken == pdTRUE) {
-        portYIELD_FROM_ISR();
-    }
+    // WiFi task context, not an ISR: use the normal API with zero timeout.
+    xQueueSend(wasteQueue, &packet, 0);
 }
 
 bool espNowCommsInit()
@@ -43,9 +49,10 @@ bool espNowCommsInit()
         }
     }
 
-    // 2. Set WiFi station mode
+    // 2. Set WiFi station mode and channel
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
+    esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
 
     // 3. Print Local MAC Address for pairing
     Serial.print("[INIT] Device ESP-NOW MAC Address: ");
