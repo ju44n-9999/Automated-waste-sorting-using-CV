@@ -9,6 +9,7 @@ Two ESP32-S3 boards that talk over ESP-NOW (no router needed between them):
 1. **Camera / classifier** — `waste_classifier_verllm/firmware/` (Arduino sketch built with PlatformIO). Captures a JPEG, classifies it as plastic / metal / paper, and broadcasts the label over ESP-NOW. Two classification paths:
    - On-device TFLite model (`model_data.cpp`, INT8 128×128×3 → 3 logits, 4 MB arena in PSRAM).
    - Groq vision LLM called directly from the board over HTTPS (`llm_config.h`). Rate limits / cooldown (`LLM_CAPTURE_INTERVAL_MS`, 429 `Retry-After`) fall back to the local model.
+   - Physical capture button on GPIO 14 (active LOW, internal pull-up) and a WS2812B status LED on GPIO 3, driven by its own FreeRTOS task (`ledTask`): slow red blink = booting, steady red = no station Wi-Fi (hotspot-only counts), yellow = analyzing, green = ready, fast red blink = failed analysis or camera/model fault. All capture paths go through `classifyWithLed()`. Camera uses GPIO 4–13, 15–18 (4/5 = SCCB), so don't put peripherals there.
    - Also serves a web UI (`web_page.h`) with `/classify`, snapshot and pause/resume endpoints. With empty `WIFI_SSID` in `wifi_config.h` it runs its own `WasteCamera` hotspot on channel 6.
 2. **Sorting controller** — `devicesControl/` (PlatformIO). Receives tags, drives two facing servos to a per-material angle, holds, returns home.
 
