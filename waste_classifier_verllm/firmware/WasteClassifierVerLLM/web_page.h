@@ -122,7 +122,7 @@ const view=document.getElementById("view"),status=document.getElementById("statu
 const snap=document.getElementById("snap"),liveBtn=document.getElementById("live"),sheet=document.getElementById("sheet");
 const badge=document.getElementById("badge"),arm=document.getElementById("arm"),stopAutoBtn=document.getElementById("stop-auto");
 let live=true,hold=false,busy=false,scanning=false,mode="manual",autoToken=0,deviceReady=false,linkChecking=true;
-let captureIntervalSeconds=30;
+let captureIntervalSeconds=30,seenAttempt=-1;
 function tick(){if(live&&!hold)view.src="/capture?t="+Date.now();}
 view.onload=function(){if(live&&!hold)setTimeout(tick,140);};
 view.onerror=function(){setTimeout(tick,700);};
@@ -139,8 +139,10 @@ async function classifyOnce(){
   hold=true;
   try{
     const r=await fetch("/classify",{method:"POST",cache:"no-store"});
+    const attempt=parseInt(r.headers.get("X-Attempt-Id"),10);
+    if(!isNaN(attempt))seenAttempt=attempt;
     if(!r.ok){
-      const error=new Error(r.status===429?"?ang ch? h?n m?c API. Th? l?i sau "+(r.headers.get("Retry-After")||30)+" gi?y.":"Kh?ng ph?n lo?i ???c. Ki?m tra backend.");
+      const error=new Error(r.status===429?"Đang chờ hạn mức API. Thử lại sau "+(r.headers.get("Retry-After")||30)+" giây.":"Không phân loại được. Kiểm tra backend.");
       error.rateLimited=r.status===429;
       throw error;
     }
@@ -268,6 +270,27 @@ document.getElementById("peek").onclick=function(){
   p.type=show?"text":"password";
   this.textContent=show?"Ẩn":"Hiện";
 };
+// Show captures started outside this page (physical button, firmware auto mode).
+async function syncExternal(h){
+  if(typeof h.attempt_id!=="number")return;
+  if(seenAttempt<0){seenAttempt=h.attempt_id;return;}
+  if(busy||hold||h.attempt_id===seenAttempt)return;
+  seenAttempt=h.attempt_id;
+  const who=h.last_trigger==="button"?" bằng nút":"";
+  if(!h.last_ok){if(!autoToken)status.textContent="Chụp"+who+" không được. Thử lại.";return;}
+  try{
+    const r=await fetch("/latest",{cache:"no-store"});
+    if(r.status!==200||busy||hold)return;
+    const data=await r.json();
+    showResult(data);
+    if(mode==="manual"){
+      live=false;
+      if(data.capture_id)view.src="/last.jpg?id="+data.capture_id+"&t="+Date.now();
+      badge.hidden=false;liveBtn.hidden=false;snap.textContent="Chụp tiếp";
+      status.textContent="Đã xong (chụp"+who+").";
+    }
+  }catch(e){}
+}
 function readyText(){return mode==="auto"?"Đang xem camera. Bấm sẵn sàng khi muốn bắt đầu.":"Đưa vật vào giữa khung, rồi chụp.";}
 function applyHealth(h){
   captureIntervalSeconds=Math.max(30,Math.ceil((h.capture_interval_ms||30000)/1000));
@@ -284,11 +307,12 @@ function applyHealth(h){
   if(linkChecking){status.textContent="Đang kết nối tới server";snap.disabled=true;arm.disabled=true;return;}
   if(!busy){snap.disabled=false;arm.disabled=false;}
   if(wasChecking&&!autoToken&&!busy)status.textContent=readyText();
+  syncExternal(h);
 }
 function pollHealth(){
   fetch("/health",{cache:"no-store"}).then(function(r){return r.json();}).then(function(h){
     applyHealth(h);
-    setTimeout(pollHealth,linkChecking?700:5000);
+    setTimeout(pollHealth,linkChecking?700:1000);
   }).catch(function(){setTimeout(pollHealth,1000);});
 }
 refreshWifi();
