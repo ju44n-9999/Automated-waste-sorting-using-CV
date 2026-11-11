@@ -27,8 +27,29 @@ typedef struct __attribute__((packed)) {
     char label[MAX_TAG_LEN];
 } CameraWastePacket;
 
-// FreeRTOS queue for decoupling high-priority ESP-NOW callback from servo actuation
-extern QueueHandle_t wasteQueue;
+// Standard Arduino-style received packet buffer and flag
+extern WasteSortPacket latestPacket;
+extern volatile bool newPacketAvailable;
+
+/**
+ * @brief Checks if a new ESP-NOW packet is available to process.
+ * @return true if a packet is available, false otherwise
+ */
+bool espNowAvailable();
+
+/**
+ * @brief Reads the next available ESP-NOW packet.
+ * @param packet Reference to WasteSortPacket to receive data
+ * @return true if a packet was retrieved, false otherwise
+ */
+bool espNowRead(WasteSortPacket &packet);
+
+/**
+ * @brief Reads the next available ESP-NOW packet (pointer overload).
+ */
+inline bool espNowRead(WasteSortPacket *packet) {
+    return packet ? espNowRead(*packet) : false;
+}
 
 /**
  * @brief Initialize WiFi in Station mode, configure ESP-NOW, and print local MAC.

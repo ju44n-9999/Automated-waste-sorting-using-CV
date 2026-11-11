@@ -18,8 +18,9 @@
 // continuous-rotation: write() sets speed (90 = stop), so angles won't work.
 
 // ── ESP-NOW Wireless Communication ──────────────────────────────
-#define ESPNOW_WIFI_CHANNEL        1     // WiFi channel for ESP-NOW (must match CV sender)
-#define WASTE_QUEUE_LENGTH        10     // Max pending waste items buffered in FreeRTOS queue
+#define ESPNOW_WIFI_CHANNEL       12     // WiFi channel for ESP-NOW (must match CV sender)
+#define ESPNOW_BUFFER_SIZE        10     // Max pending waste items buffered
+#define WASTE_QUEUE_LENGTH        ESPNOW_BUFFER_SIZE // Backwards-compatible alias
 
 // ── Servo GPIO pin ───────────────────────────────────────────────
 #define SERVO_PIN    4   // Single sorting servo pin

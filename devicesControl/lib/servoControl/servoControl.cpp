@@ -75,7 +75,7 @@ static void printHelp()
     Serial.println(F("║            SINGLE SERVO CONTROLLER — SERIAL COMMANDS            ║"));
     Serial.println(F("╠═════════════════════════════════════════════════════════════════╣"));
     Serial.println(F("║  Commands:                                                      ║"));
-    Serial.println(F("║    • METAL      -> Sort cycle for METAL (20° hold 1.5s -> home) ║"));
+    Serial.println(F("║    • METAL      -> Sort cycle for METAL (75° hold 5s -> home)   ║"));
     Serial.println(F("║    • PLASTICS   -> Sort cycle for PLASTICS (45° hold -> home)   ║"));
     Serial.println(F("║    • PAPER      -> Sort cycle for PAPER (90° hold -> home)      ║"));
     Serial.println(F("║    • 0 - 180    -> Move to exact angle & HOLD position          ║"));
@@ -189,8 +189,8 @@ void servoControlLoop()
         Serial.println(F("[HEARTBEAT] Controller alive. Type METAL / PLASTICS / PAPER / angle / HOME / SWEEP / HELP"));
     }
 
-    // 1. Check for incoming packets from ESP-NOW queue
-    if (wasteQueue != nullptr && xQueueReceive(wasteQueue, &packet, 0) == pdPASS)
+    // 1. Check for incoming packets from ESP-NOW (standard Arduino polling)
+    if (espNowRead(packet))
     {
         Serial.printf("[ESP-NOW] Received packet #%u with tag: \"%s\"\n",
                       packet.messageId, packet.tag);
