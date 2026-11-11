@@ -22,7 +22,7 @@ void servoControlLoop();
 bool sortWasteByTag(const String &tag);
 
 /**
- * @brief Smoothly move single servo to target angle and hold.
+ * @brief Move single servo to target angle and hold.
  * @param targetAngle 0..180, clamped
  */
 void moveToAngle(int targetAngle);

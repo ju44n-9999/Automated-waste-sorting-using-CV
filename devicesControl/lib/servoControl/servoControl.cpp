@@ -34,24 +34,6 @@ static bool isNumeric(const String &str)
     return true;
 }
 
-// ── Smooth move helper: steps the single servo from current to target angle ──
-static void smoothMoveTo(int toAngle)
-{
-    const int step = (toAngle > currentServoAngle) ? SERVO_STEP_DEG : -SERVO_STEP_DEG;
-    int current = currentServoAngle;
-
-    while (current != toAngle)
-    {
-        current += step;
-        if ((step > 0 && current > toAngle) || (step < 0 && current < toAngle)) {
-            current = toAngle;
-        }
-        sortingServo.write(current);
-        delay(SERVO_STEP_MS);
-    }
-    currentServoAngle = toAngle;
-}
-
 // ─────────────────────────────────────────────────────────────────
 //  moveToAngle — Move single servo to physical angle and HOLD
 // ─────────────────────────────────────────────────────────────────
@@ -61,7 +43,8 @@ void moveToAngle(int targetAngle)
     if (targetAngle > SERVO_MAX_ANGLE) targetAngle = SERVO_MAX_ANGLE;
 
     Serial.printf("[SERVO] Moving to %d°\n", targetAngle);
-    smoothMoveTo(targetAngle);
+    sortingServo.write(targetAngle);
+    currentServoAngle = targetAngle;
     Serial.printf("[SERVO] Position reached: %d° (holding position).\n", targetAngle);
 }
 
@@ -150,13 +133,15 @@ bool sortWasteByTag(const String &tag)
     }
 
     Serial.printf("[SORT] Detected \"%s\" -> Moving to %d°\n", tag.c_str(), targetAngle);
-    smoothMoveTo(targetAngle);
+    sortingServo.write(targetAngle);
+    currentServoAngle = targetAngle;
 
     Serial.printf("[SORT] Holding for %d ms...\n", SERVO_HOLD_MS);
     delay(SERVO_HOLD_MS);
 
     Serial.printf("[SORT] Returning to home position (%d°)...\n", SERVO_HOME_ANGLE);
-    smoothMoveTo(SERVO_HOME_ANGLE);
+    sortingServo.write(SERVO_HOME_ANGLE);
+    currentServoAngle = SERVO_HOME_ANGLE;
 
     Serial.println(F("[SORT] Ready for next item."));
     return true;
@@ -168,12 +153,12 @@ bool sortWasteByTag(const String &tag)
 void servoControlInit()
 {
     // 1. Hardware PWM Timer Allocation for ESP32-S3
-    ESP32PWM::allocateTimer(0);
-    sortingServo.setPeriodHertz(50);
+    // sortingServo.setPeriodHertz(50);
 
     // 2. Attach single servo with full 500us - 2500us pulse range
     Serial.printf("[INIT] Attaching sorting servo on GPIO %d...\n", SERVO_PIN);
-    sortingServo.attach(SERVO_PIN, 500, 2500);
+    Serial.flush();
+    sortingServo.attach(SERVO_PIN);
 
     currentServoAngle = SERVO_HOME_ANGLE;
     sortingServo.write(SERVO_HOME_ANGLE);
