@@ -57,6 +57,47 @@ struct __attribute__((packed)) WastePacket {
 bool camera_ok = false, model_ok = false;
 String model_error = "Classifier not initialized";
 String last_json;
+// Every capture attempt (web, button, auto) bumps attempt_id so the web UI can show
+// results of captures it did not start itself, e.g. the physical button.
+uint32_t attempt_id = 0;
+bool last_attempt_ok = false;
+const char *last_trigger = "";
+
+// ── Physical capture button + WS2812 status LED ─────────────────
+// GPIO 4/5 are the camera SCCB bus; do not reuse them here.
+constexpr int BTN_PIN = 14;              // Active LOW: button to GND, internal pull-up
+constexpr int LED_PIN = 3;               // DIN of the WS2812B module
+constexpr uint8_t LED_LEVEL = 60;        // 0-255 brightness per channel
+constexpr uint32_t BTN_DEBOUNCE_MS = 50;
+constexpr uint32_t LED_ERROR_MS = 2000;  // Fast red blink after a failed analysis
+// Booting  = slow red blink   NoWifi = steady red   Ready = green
+// Analyzing = yellow           Fault/error = fast red blink
+enum LedState : uint8_t { LedBooting, LedReady, LedNoWifi, LedAnalyzing, LedFault };
+volatile LedState led_state = LedBooting;
+volatile uint32_t led_error_until = 0;
+
+// Runs on its own task so the LED keeps blinking while setup() or a Groq request blocks.
+void ledTask(void *) {
+  uint32_t shown = 0xFFFFFFFF;
+  for (;;) {
+    uint32_t now = millis();
+    LedState s = led_state;
+    uint32_t until = led_error_until;
+    bool errorFlash = until && (int32_t)(until - now) > 0;
+    uint32_t color;  // 0xRRGGBB
+    if (s == LedAnalyzing) color = 0xFFA000;
+    else if (errorFlash || s == LedFault) color = (now / 100) % 2 ? 0xFF0000 : 0;
+    else if (s == LedBooting) color = (now / 400) % 2 ? 0xFF0000 : 0;
+    else if (s == LedNoWifi) color = 0xFF0000;
+    else color = 0x00FF00;
+    if (color != shown) {
+      shown = color;
+      rgbLedWrite(LED_PIN, ((color >> 16) & 0xFF) * LED_LEVEL / 255,
+                  ((color >> 8) & 0xFF) * LED_LEVEL / 255, (color & 0xFF) * LED_LEVEL / 255);
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
 
 bool useLocalModel() {
   if (!tflite_ok) return false;
@@ -341,6 +382,10 @@ void initEspNow() {
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, espnow_broadcast, 6);
   peer.channel = 0;
+  // The hotspot is up in every Wi-Fi mode, so sending from it always works (in AP-only
+  // mode the STA interface is off and sends would fail with ESP_ERR_ESPNOW_IF). It also
+  // makes the sender MAC equal the hotspot BSSID, which the controller locks onto.
+  peer.ifidx = WIFI_IF_AP;
   peer.encrypt = false;
   if (esp_now_add_peer(&peer) != ESP_OK) { Serial.println("ESP-NOW broadcast peer failed"); return; }
   espnow_ready = true;
@@ -367,9 +412,46 @@ void handleCommand() {
   server.send(200, "application/json", String("{\"auto_enabled\":") + (auto_enabled ? "true" : "false") + "}");
 }
 
+// Base LED state when nothing is being analyzed. Hotspot-only mode counts as no Wi-Fi.
+void updateLed() {
+  if (api_link == ApiChecking) led_state = LedBooting;
+  else if (!camera_ok || !model_ok) led_state = LedFault;
+  else if (WiFi.status() != WL_CONNECTED) led_state = LedNoWifi;
+  else led_state = LedReady;
+}
+
+// Every capture path (web UI, auto mode, button) goes through here so the LED stays in sync.
+bool classifyWithLed(String &json, String &error, int &httpStatus, const char *trigger) {
+  led_state = LedAnalyzing;
+  bool ok = runClassify(json, error, httpStatus);
+  ++attempt_id; last_attempt_ok = ok; last_trigger = trigger;
+  if (!ok) led_error_until = millis() + LED_ERROR_MS;
+  updateLed();
+  return ok;
+}
+
+void pollButton() {
+  static bool stable = HIGH, last = HIGH;
+  static uint32_t changed = 0;
+  bool raw = digitalRead(BTN_PIN);
+  uint32_t now = millis();
+  if (raw != last) { last = raw; changed = now; }
+  if (now - changed < BTN_DEBOUNCE_MS || raw == stable) return;
+  stable = raw;
+  if (stable != LOW) return;
+  Serial.println("Button: capture");
+  String json, error; int httpStatus = 503;
+  if (!classifyWithLed(json, error, httpStatus, "button")) Serial.printf("Button capture failed: %s\n", error.c_str());
+  // Presses made while analyzing are dropped, not queued.
+  stable = last = digitalRead(BTN_PIN);
+  changed = millis();
+}
+
 void classify() {
   String json, error; int httpStatus=503;
-  if(!runClassify(json, error, httpStatus)){
+  bool ok=classifyWithLed(json, error, httpStatus, "web");
+  server.sendHeader("X-Attempt-Id",String(attempt_id));
+  if(!ok){
     cors();
     if(httpStatus==429)server.sendHeader("Retry-After",String((llmWaitMs()+999)/1000));
     server.send(httpStatus,"text/plain",error);return;
@@ -573,7 +655,10 @@ void probeBackend() {
 }
 
 void setup() {
-  Serial.begin(115200); delay(300);
+  Serial.begin(115200);
+  pinMode(BTN_PIN, INPUT_PULLUP);
+  xTaskCreatePinnedToCore(ledTask, "StatusLed", 3072, nullptr, 1, nullptr, 0);
+  delay(300);
   startWifi();
   Serial.printf("PSRAM total=%u free=%u\n",(unsigned)ESP.getPsramSize(),(unsigned)ESP.getFreePsram());
   if(!psramFound()){Serial.println("Enable OPI PSRAM in Arduino Tools before uploading");return;}
@@ -610,7 +695,10 @@ void setup() {
       + ",\"auto_enabled\":" + (auto_enabled ? "true" : "false")
       + ",\"api_checking\":" + (api_link == ApiChecking ? "true" : "false")
       + ",\"api_online\":" + (api_link == ApiOnline && !useLocalModel() ? "true" : "false")
-      + ",\"capture_interval_ms\":" + String(AUTO_MS) + "}";
+      + ",\"capture_interval_ms\":" + String(AUTO_MS)
+      + ",\"attempt_id\":" + String(attempt_id)
+      + ",\"last_ok\":" + (last_attempt_ok ? "true" : "false")
+      + ",\"last_trigger\":\"" + last_trigger + "\"}";
     server.send(200, "application/json", body);
   });
   server.begin(); Serial.println("Web server ready");
@@ -621,10 +709,12 @@ void loop() {
   static uint32_t serve_since = 0;
   if(!serve_since) serve_since = millis();
   if(api_link==ApiChecking && millis()-serve_since>400) probeBackend();
+  if(api_link!=ApiChecking) pollButton();
   if(api_link!=ApiChecking && auto_enabled && camera_ok && model_ok && millis()-last_auto_ms>=AUTO_MS && llmWaitMs()==0) {
     last_auto_ms=millis();
     String json, error; int httpStatus=503;
-    if(!runClassify(json, error, httpStatus)) Serial.println(error);
+    if(!classifyWithLed(json, error, httpStatus, "auto")) Serial.println(error);
   }
+  updateLed();
   delay(2);
 }
