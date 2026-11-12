@@ -67,6 +67,30 @@ static void sweepTest()
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  printStatus — Display diagnostic status
+// ─────────────────────────────────────────────────────────────────
+static void printStatus()
+{
+    char peerStr[18];
+    espNowGetPeerMacStr(peerStr, sizeof(peerStr));
+    uint32_t lastPacket = espNowGetLastPacketTime();
+    uint32_t elapsed = (lastPacket > 0) ? (millis() - lastPacket) : 0;
+
+    Serial.println(F("\n┌────────────────── SYSTEM STATUS ──────────────────┐"));
+    Serial.printf("│ MAC Address:    %s\n", WiFi.macAddress().c_str());
+    Serial.printf("│ WiFi Channel:   %d (%s)\n",
+                  espNowGetCurrentChannel(),
+                  espNowIsChannelLocked() ? "LOCKED" : "SCANNING");
+    Serial.printf("│ Connected Peer: %s\n", peerStr);
+    if (espNowIsChannelLocked()) {
+        Serial.printf("│ Last Activity:  %u ms ago\n", (unsigned)elapsed);
+    }
+    Serial.printf("│ Servo Position: %d° (Pin GPIO %d)\n", currentServoAngle, SERVO_PIN);
+    Serial.printf("│ Queue Pending:  %s\n", espNowAvailable() ? "YES" : "EMPTY");
+    Serial.println(F("└───────────────────────────────────────────────────┘"));
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  printHelp — Display available Serial commands
 // ─────────────────────────────────────────────────────────────────
 static void printHelp()
@@ -74,14 +98,17 @@ static void printHelp()
     Serial.println(F("\n╔═════════════════════════════════════════════════════════════════╗"));
     Serial.println(F("║            SINGLE SERVO CONTROLLER — SERIAL COMMANDS            ║"));
     Serial.println(F("╠═════════════════════════════════════════════════════════════════╣"));
-    Serial.println(F("║  Commands:                                                      ║"));
+    Serial.println(F("║  Sorting Commands:                                              ║"));
     Serial.println(F("║    • METAL      -> Sort cycle for METAL (75° hold 5s -> home)   ║"));
     Serial.println(F("║    • PLASTICS   -> Sort cycle for PLASTICS (45° hold -> home)   ║"));
-    Serial.println(F("║    • PAPER      -> Sort cycle for PAPER (90° hold -> home)      ║"));
+    Serial.println(F("║    • PAPER      -> Sort cycle for PAPER (20° hold -> home)      ║"));
     Serial.println(F("║    • 0 - 180    -> Move to exact angle & HOLD position          ║"));
-    Serial.println(F("║                    (e.g., '0', '20', '45', '90', '180')         ║"));
-    Serial.println(F("║    • HOME       -> Move directly to rest position (0°)          ║"));
+    Serial.println(F("║    • HOME       -> Move directly to rest position (95°)         ║"));
     Serial.println(F("║    • SWEEP      -> Run automatic sweep through all angles       ║"));
+    Serial.println(F("║  ESP-NOW Channel Management:                                    ║"));
+    Serial.println(F("║    • SCAN       -> Search channels 1-13 to find other devices   ║"));
+    Serial.println(F("║    • CH <1-13>  -> Set/lock specific WiFi channel (e.g. 'CH 6') ║"));
+    Serial.println(F("║    • STATUS     -> Display current channel, peer, and servo info║"));
     Serial.println(F("║    • HELP       -> Show this menu                               ║"));
     Serial.println(F("╚═════════════════════════════════════════════════════════════════╝"));
     Serial.print(F("Enter command: "));
@@ -143,6 +170,10 @@ bool sortWasteByTag(const String &tag)
     sortingServo.write(SERVO_HOME_ANGLE);
     currentServoAngle = SERVO_HOME_ANGLE;
 
+    delay(500);
+
+    espNowFlush();
+
     Serial.println(F("[SORT] Ready for next item."));
     return true;
 }
@@ -183,10 +214,19 @@ void servoControlLoop()
     static size_t idxUSB = 0;
     static uint32_t lastHeartbeatMs = 0;
 
+    // Run non-blocking ESP-NOW channel management and peer discovery
+    espNowLoop();
+
     // Periodic heartbeat log
     if (millis() - lastHeartbeatMs >= HEARTBEAT_MS) {
         lastHeartbeatMs = millis();
-        Serial.println(F("[HEARTBEAT] Controller alive. Type METAL / PLASTICS / PAPER / angle / HOME / SWEEP / HELP"));
+        char peerStr[18];
+        espNowGetPeerMacStr(peerStr, sizeof(peerStr));
+        Serial.printf("[HEARTBEAT] Alive | Ch %d [%s] | Peer: %s | Servo: %d°\n",
+                      espNowGetCurrentChannel(),
+                      espNowIsChannelLocked() ? "LOCKED" : "SCANNING",
+                      peerStr,
+                      currentServoAngle);
     }
 
     // 1. Check for incoming packets from ESP-NOW (standard Arduino polling)
@@ -210,6 +250,22 @@ void servoControlLoop()
 
             if (cmd.equalsIgnoreCase("HELP") || cmd.equals("?")) {
                 printHelp();
+            }
+            else if (cmd.equalsIgnoreCase("STATUS") || cmd.equalsIgnoreCase("INFO")) {
+                printStatus();
+            }
+            else if (cmd.equalsIgnoreCase("SCAN") || cmd.equalsIgnoreCase("FIND")) {
+                espNowStartChannelScan();
+            }
+            else if (cmd.startsWith("CH ") || cmd.startsWith("ch ") ||
+                     cmd.startsWith("CHANNEL ") || cmd.startsWith("channel ")) {
+                int spaceIdx = cmd.indexOf(' ');
+                int channel = cmd.substring(spaceIdx + 1).toInt();
+                if (channel >= 1 && channel <= 14) {
+                    espNowSetChannel((uint8_t)channel, true);
+                } else {
+                    Serial.println(F("[WARN] Invalid channel! Please specify 1-13."));
+                }
             }
             else if (cmd.equalsIgnoreCase("HOME") || cmd.equalsIgnoreCase("REST")) {
                 moveToAngle(SERVO_HOME_ANGLE);

@@ -27,6 +27,16 @@ typedef struct __attribute__((packed)) {
     char label[MAX_TAG_LEN];
 } CameraWastePacket;
 
+/**
+ * @brief Acknowledge / discovery response packet sent by Device Controller
+ */
+typedef struct __attribute__((packed)) {
+    char magic[6];          // "WACK\0"
+    uint8_t channel;        // Channel controller is locked to
+    uint8_t status;         // 1 = Ready/Idle, 2 = Sorting
+    uint32_t messageId;     // Echoes received capture_id / messageId
+} ControllerAckPacket;
+
 // Standard Arduino-style received packet buffer and flag
 extern WasteSortPacket latestPacket;
 extern volatile bool newPacketAvailable;
@@ -56,5 +66,64 @@ inline bool espNowRead(WasteSortPacket *packet) {
  * @return true on success, false otherwise
  */
 bool espNowCommsInit();
+
+/**
+ * @brief Periodic communication task called from Arduino loop().
+ *        Handles channel hopping when searching for peers and peer timeouts.
+ */
+void espNowLoop();
+
+/**
+ * @brief Gets the active Wi-Fi channel currently tuned by the radio.
+ */
+uint8_t espNowGetCurrentChannel();
+
+/**
+ * @brief Returns true if locked onto an active peer's channel.
+ */
+bool espNowIsChannelLocked();
+
+/**
+ * @brief Starts or forces channel hopping loop to discover other devices.
+ */
+void espNowStartChannelScan();
+
+/**
+ * @brief Manually tunes and locks to a specific Wi-Fi channel.
+ * @param channel Wi-Fi channel 1-13
+ * @param lock If true, locks to this channel and disables auto-hopping
+ */
+void espNowSetChannel(uint8_t channel, bool lock = true);
+
+/**
+ * @brief Gets the MAC address of the last connected peer (6 bytes).
+ * @return Pointer to 6-byte array or nullptr if no peer seen yet
+ */
+const uint8_t* espNowGetPeerMac();
+
+/**
+ * @brief Formats the peer MAC address into a string buffer (e.g. "AA:BB:CC:DD:EE:FF").
+ * @param buf Output buffer (at least 18 bytes)
+ * @param maxLen Size of buffer
+ */
+void espNowGetPeerMacStr(char *buf, size_t maxLen);
+
+/**
+ * @brief Gets the timestamp (millis) of the last valid packet received.
+ */
+uint32_t espNowGetLastPacketTime();
+
+/**
+ * @brief Sends an ACK packet back to the peer or broadcast.
+ * @param targetMac Target MAC address (or nullptr for last seen peer)
+ * @param echoedId Message ID to echo back
+ * @return true on success, false on error
+ */
+bool espNowSendAck(const uint8_t *targetMac = nullptr, uint32_t echoedId = 0);
+
+/**
+ * @brief Clears pending packets in the queue (e.g., after physical actuation completes).
+ */
+void espNowFlush();
 
 #endif // ESP_NOW_COMMS_H
