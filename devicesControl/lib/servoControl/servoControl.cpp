@@ -4,7 +4,7 @@
  * Command-driven single-servo controller for automated waste sorting.
  * Implemented using the Arduino framework lifecycle (setup / loop).
  *
- * Receives waste classification packets ("METAL", "PLASTICS", "PAPER") wirelessly
+ * Receives waste classification packets ("metal", "plastic", "paper_cardboard") wirelessly
  * from the CV ESP32 via ESP-NOW, OR accepts manual commands and raw angles (0-180)
  * directly via USB Serial Monitor.
  */
@@ -71,19 +71,17 @@ static void sweepTest()
 // ─────────────────────────────────────────────────────────────────
 static void printHelp()
 {
-    Serial.println(F("\n╔═════════════════════════════════════════════════════════════════╗"));
-    Serial.println(F("║            SINGLE SERVO CONTROLLER — SERIAL COMMANDS            ║"));
-    Serial.println(F("╠═════════════════════════════════════════════════════════════════╣"));
-    Serial.println(F("║  Commands:                                                      ║"));
-    Serial.println(F("║    • METAL      -> Sort cycle for METAL (20° hold 1.5s -> home) ║"));
-    Serial.println(F("║    • PLASTICS   -> Sort cycle for PLASTICS (45° hold -> home)   ║"));
-    Serial.println(F("║    • PAPER      -> Sort cycle for PAPER (90° hold -> home)      ║"));
-    Serial.println(F("║    • 0 - 180    -> Move to exact angle & HOLD position          ║"));
-    Serial.println(F("║                    (e.g., '0', '20', '45', '90', '180')         ║"));
-    Serial.println(F("║    • HOME       -> Move directly to rest position (0°)          ║"));
-    Serial.println(F("║    • SWEEP      -> Run automatic sweep through all angles       ║"));
-    Serial.println(F("║    • HELP       -> Show this menu                               ║"));
-    Serial.println(F("╚═════════════════════════════════════════════════════════════════╝"));
+    Serial.println(F("\n================ SERVO CONTROLLER — SERIAL COMMANDS ================"));
+    Serial.printf("  METAL       -> sort cycle: %d deg, hold %d ms, home\n", ANGLE_METAL, SERVO_HOLD_MS);
+    Serial.printf("  PLASTIC(S)  -> sort cycle: %d deg, hold %d ms, home\n", ANGLE_PLASTICS, SERVO_HOLD_MS);
+    Serial.printf("  PAPER       -> sort cycle: %d deg, hold %d ms, home\n", ANGLE_PAPER, SERVO_HOLD_MS);
+    Serial.printf("  0 - 180     -> move to exact angle and hold\n");
+    Serial.printf("  HOME        -> move to rest position (%d deg)\n", SERVO_HOME_ANGLE);
+    Serial.println(F("  SWEEP       -> run automatic sweep through all angles"));
+    Serial.printf("  SCAN        -> rescan for camera \"%s\" (now on channel %u)\n",
+                  CAMERA_AP_SSID, espNowCommsChannel());
+    Serial.println(F("  HELP        -> show this menu"));
+    Serial.println(F("===================================================================="));
     Serial.print(F("Enter command: "));
 }
 
@@ -186,8 +184,11 @@ void servoControlLoop()
     // Periodic heartbeat log
     if (millis() - lastHeartbeatMs >= HEARTBEAT_MS) {
         lastHeartbeatMs = millis();
-        Serial.println(F("[HEARTBEAT] Controller alive. Type METAL / PLASTICS / PAPER / angle / HOME / SWEEP / HELP"));
+        Serial.println(F("[HEARTBEAT] Controller alive. Type METAL / PLASTIC / PAPER / angle / HOME / SWEEP / SCAN / HELP"));
     }
+
+    // 0. Keep ESP-NOW tuned to the camera's channel
+    espNowCommsService();
 
     // 1. Check for incoming packets from ESP-NOW queue
     if (wasteQueue != nullptr && xQueueReceive(wasteQueue, &packet, 0) == pdPASS)
@@ -216,6 +217,10 @@ void servoControlLoop()
             }
             else if (cmd.equalsIgnoreCase("SWEEP") || cmd.equalsIgnoreCase("TEST")) {
                 sweepTest();
+            }
+            else if (cmd.equalsIgnoreCase("SCAN")) {
+                Serial.printf("[ESP-NOW] Rescanning for \"%s\"...\n", CAMERA_AP_SSID);
+                espNowCommsRequestRescan();
             }
             else if (tagToAngle(cmd) >= 0) {
                 sortWasteByTag(cmd);

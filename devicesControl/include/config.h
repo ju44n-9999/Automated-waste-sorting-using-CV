@@ -6,10 +6,10 @@
 #define SERVO_MAX_ANGLE  180
 #define SERVO_HOME_ANGLE   95     // Rest position (gate closed)
 
-// ── Sorting angles per waste tag ────────────────────────────────
-#define ANGLE_METAL       75     // 20 degrees for METAL
-#define ANGLE_PLASTICS    45     // 45 degrees for PLASTICS
-#define ANGLE_PAPER       20     // 90 degrees for PAPER
+// ── Sorting angles per waste tag (keep in sync with tags.txt) ───
+#define ANGLE_METAL       75     // METAL
+#define ANGLE_PLASTICS    45     // PLASTIC / PLASTICS
+#define ANGLE_PAPER       20     // PAPER / PAPER_CARDBOARD / CARDBOARD
 
 // ── Servo movement timing ───────────────────────────────────────
 #define SERVO_HOLD_MS   5000     // Hold at target before returning home
@@ -18,7 +18,9 @@
 // continuous-rotation: write() sets speed (90 = stop), so angles won't work.
 
 // ── ESP-NOW Wireless Communication ──────────────────────────────
-#define ESPNOW_WIFI_CHANNEL        1     // WiFi channel for ESP-NOW (must match CV sender)
+#define CAMERA_AP_SSID   "WasteCamera"  // Camera hotspot; we scan for it to find its channel
+#define ESPNOW_WIFI_CHANNEL        6     // Fallback channel if the hotspot is not found (camera default)
+#define ESPNOW_RESCAN_IDLE_MS  60000     // Rescan for the camera after this long without packets
 #define WASTE_QUEUE_LENGTH        10     // Max pending waste items buffered in FreeRTOS queue
 
 // ── Servo GPIO pin ───────────────────────────────────────────────

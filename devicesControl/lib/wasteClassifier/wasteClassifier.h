@@ -12,13 +12,13 @@
 /**
  * @brief Maps a waste category tag to target servo angle.
  * 
- * Rules:
- *   - "METAL"    -> 20 degrees
- *   - "PLASTICS" -> 45 degrees (also accepts "PLASTIC")
- *   - "PAPER"    -> 90 degrees
+ * Rules (angles from config.h, see tags.txt):
+ *   - "METAL"    -> ANGLE_METAL    (75)
+ *   - "PLASTICS" -> ANGLE_PLASTICS (45) (also accepts "PLASTIC")
+ *   - "PAPER"    -> ANGLE_PAPER    (20) (also "PAPER_CARDBOARD", "CARDBOARD")
  * 
  * @param tag String or C-string tag (case-insensitive, trims whitespace)
- * @return int Target angle (20, 45, 90), or -1 if unknown
+ * @return int Target angle, or -1 if unknown
  */
 int tagToAngle(const char* tag);
 

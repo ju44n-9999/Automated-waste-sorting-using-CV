@@ -18,22 +18,22 @@ int main()
     std::cout << "Running Waste Classifier & Servo Angle Tests...\n";
 
     // ── Test 1: Standard tags to angles ──
-    TEST_ASSERT(tagToAngle("METAL") == 20, "Tag 'METAL' must return 20 degrees");
+    TEST_ASSERT(tagToAngle("METAL") == 75, "Tag 'METAL' must return 75 degrees");
     TEST_ASSERT(tagToAngle("PLASTICS") == 45, "Tag 'PLASTICS' must return 45 degrees");
     TEST_ASSERT(tagToAngle("PLASTIC") == 45, "Tag 'PLASTIC' must return 45 degrees");
-    TEST_ASSERT(tagToAngle("PAPER") == 90, "Tag 'PAPER' must return 90 degrees");
-    TEST_ASSERT(tagToAngle("paper_cardboard") == 90, "Tag 'paper_cardboard' must return 90 degrees");
-    TEST_ASSERT(tagToAngle("CARDBOARD") == 90, "Tag 'CARDBOARD' must return 90 degrees");
+    TEST_ASSERT(tagToAngle("PAPER") == 20, "Tag 'PAPER' must return 20 degrees");
+    TEST_ASSERT(tagToAngle("paper_cardboard") == 20, "Tag 'paper_cardboard' must return 20 degrees");
+    TEST_ASSERT(tagToAngle("CARDBOARD") == 20, "Tag 'CARDBOARD' must return 20 degrees");
 
     // ── Test 2: Case insensitivity ──
-    TEST_ASSERT(tagToAngle("metal") == 20, "Tag 'metal' lowercase must return 20");
+    TEST_ASSERT(tagToAngle("metal") == 75, "Tag 'metal' lowercase must return 75");
     TEST_ASSERT(tagToAngle("Plastics") == 45, "Tag 'Plastics' mixed-case must return 45");
-    TEST_ASSERT(tagToAngle("paper") == 90, "Tag 'paper' lowercase must return 90");
+    TEST_ASSERT(tagToAngle("paper") == 20, "Tag 'paper' lowercase must return 20");
 
     // ── Test 3: Whitespace, \r, \n handling ──
-    TEST_ASSERT(tagToAngle("METAL\n") == 20, "Tag 'METAL\\n' must return 20");
+    TEST_ASSERT(tagToAngle("METAL\n") == 75, "Tag 'METAL\\n' must return 75");
     TEST_ASSERT(tagToAngle("PLASTICS\r\n") == 45, "Tag 'PLASTICS\\r\\n' must return 45");
-    TEST_ASSERT(tagToAngle("  PAPER  \n") == 90, "Tag with padding must return 90");
+    TEST_ASSERT(tagToAngle("  PAPER  \n") == 20, "Tag with padding must return 20");
 
     // ── Test 4: Unknown / invalid tags ──
     TEST_ASSERT(tagToAngle("GLASS") == -1, "Unknown tag 'GLASS' must return -1");

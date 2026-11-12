@@ -1,0 +1,3 @@
+PAPER - 20
+PLASTIC - 45
+METAL - 75
