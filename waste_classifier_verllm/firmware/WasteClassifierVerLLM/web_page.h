@@ -53,7 +53,7 @@ button.stop{border:1px solid #e3b2ab;background:#fff;color:#9a3b2f;border-radius
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .close{border:0;background:#eef3ec;border-radius:999px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
 label{display:block;margin:14px 0 6px;font-weight:700}
-input{width:100%;border:1px solid #c9d5cb;border-radius:12px;padding:12px;font:inherit;background:#fff;color:var(--ink)}
+input,select{width:100%;border:1px solid #c9d5cb;border-radius:12px;padding:12px;font:inherit;background:#fff;color:var(--ink)}
 .row{display:flex;gap:8px}
 .row input{flex:1}
 button.save,button.small{border:0;border-radius:12px;background:var(--green);color:#fff;font:inherit;font-weight:700;cursor:pointer}
@@ -109,9 +109,18 @@ li span{color:var(--muted);font-size:13px;white-space:nowrap}
         <input id="password" name="password" type="password" maxlength="63" autocomplete="off" placeholder="Để trống nếu mạng không mật khẩu">
         <button id="peek" class="small" type="button">Hiện</button>
       </div>
+      <label for="channel">Kênh Wi-Fi</label>
+      <select id="channel" name="channel">
+        <option value="0">Tự động theo mạng (dùng cho hotspot điện thoại)</option>
+        <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+        <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+        <option value="13">13</option>
+      </select>
       <button class="save" type="submit">Lưu và kết nối</button>
     </form>
-    <p>Máy chỉ vào được mạng 2.4 GHz. Sau khi lưu, máy sẽ khởi động lại.</p>
+    <p>Máy chỉ vào được mạng 2.4 GHz. Chọn kênh cố định thì mạng phải ở đúng kênh đó, nếu không máy sẽ bỏ mạng và chỉ phát hotspot. Sau khi lưu, máy sẽ khởi động lại.</p>
     <h2>Mạng tìm thấy</h2>
     <ul id="nets"><li>Đang chờ...</li></ul>
   </div>
@@ -227,7 +236,8 @@ async function refreshWifi(){
     const state=document.getElementById("wifi-state");
     const field=document.getElementById("ssid");
     if(!field.value)field.value=s.connected?s.ssid:(s.saved||"");
-    if(s.connected)state.textContent="Đang dùng mạng "+s.ssid+". Mở camera ở địa chỉ "+s.ip;
+    if(typeof s.chan_setting==="number")document.getElementById("channel").value=String(s.chan_setting);
+    if(s.connected)state.textContent="Đang dùng mạng "+s.ssid+" (kênh "+s.channel+"). Mở camera ở địa chỉ "+s.ip;
     else if(s.saved)state.textContent="Chưa vào được mạng "+s.saved+". Trang này vẫn mở qua hotspot WasteCamera.";
     else state.textContent="Chưa lưu mạng nhà. Bạn đang mở trang qua hotspot WasteCamera.";
   }catch(e){}
@@ -252,7 +262,7 @@ async function scan(){
       b.type="button";
       name.textContent=n.ssid;
       const level=n.rssi>=-60?"mạnh":n.rssi>=-75?"vừa":"yếu";
-      meta.textContent=(n.open?"không mật khẩu":"có mật khẩu")+" · "+level;
+      meta.textContent=(n.open?"không mật khẩu":"có mật khẩu")+" · "+level+(n.ch?" · kênh "+n.ch:"");
       b.appendChild(name);b.appendChild(meta);
       b.onclick=function(){document.getElementById("ssid").value=n.ssid;document.getElementById("password").focus();};
       li.appendChild(b);list.appendChild(li);

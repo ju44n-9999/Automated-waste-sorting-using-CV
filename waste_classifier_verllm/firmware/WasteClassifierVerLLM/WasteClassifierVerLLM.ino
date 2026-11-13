@@ -639,7 +639,7 @@ void sendEspNow(const char *label, float score, uint32_t id, uint32_t inferenceM
   packet.inference_ms = inferenceMs;
   strncpy(packet.label, label, sizeof(packet.label) - 1);
   esp_err_t err = esp_now_send(espnow_broadcast, reinterpret_cast<uint8_t *>(&packet), sizeof(packet));
-  Serial.printf("ESP-NOW %s to broadcast on ch %u: %s%s\n", label, WIFI_CHANNEL, esp_err_to_name(err),
+  Serial.printf("ESP-NOW %s to broadcast on ch %d: %s%s\n", label, WiFi.channel(), esp_err_to_name(err),
                 espNowLinked() ? "" : " (controller not linked)");
   // Only a controller that has ACKed before gets resends; an older one has no
   // WACK, so resending would make it sort the same item again.
@@ -744,6 +744,11 @@ void classify() {
 Preferences wifiPrefs;
 String savedSSID;
 String savedPassword;
+// Channel setting from the portal (NVS "chan"): 0 = follow the router's channel,
+// 1-13 = stay on that channel and drop a router on any other one.
+uint8_t chanSetting = WIFI_CHANNEL;
+// Channel the hotspot uses when it runs without a router.
+uint8_t hotspotChannel = WIFI_CHANNEL;
 
 String jsonEscape(const String &value) {
   String out;
@@ -772,7 +777,11 @@ void sendWifiStatus() {
   if (connected) body += WiFi.localIP().toString();
   body += "\",\"saved\":\"";
   body += jsonEscape(savedSSID);
-  body += "\"}";
+  body += "\",\"channel\":";
+  body += WiFi.channel();
+  body += ",\"chan_setting\":";
+  body += chanSetting;
+  body += '}';
   cors();
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", body);
@@ -790,6 +799,8 @@ void sendWifiNetworks() {
     body += jsonEscape(name);
     body += "\",\"rssi\":";
     body += WiFi.RSSI(i);
+    body += ",\"ch\":";
+    body += WiFi.channel(i);
     body += ",\"open\":";
     body += WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "true" : "false";
     body += '}';
@@ -833,9 +844,15 @@ void saveWifi() {
       "Tên mạng tối đa 32 ký tự. Mật khẩu để trống, hoặc dài từ 8 đến 63 ký tự.");
     return;
   }
+  long chan = server.hasArg("channel") ? server.arg("channel").toInt() : chanSetting;
+  if (chan < 0 || chan > 13) {
+    sendNote(400, "Chưa lưu được", "Kênh phải là Tự động hoặc từ 1 đến 13.");
+    return;
+  }
   wifiPrefs.begin("waste-wifi", false);
   wifiPrefs.putString("ssid", ssid);
   wifiPrefs.putString("pass", password);
+  wifiPrefs.putUChar("chan", (uint8_t)chan);
   wifiPrefs.end();
   server.send_P(200, "text/html; charset=utf-8", SAVED_PAGE);
   delay(800);
@@ -855,13 +872,13 @@ void holdHotspot() {
   WiFi.mode(WIFI_AP);
   WiFi.setSleep(false);
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, WIFI_CHANNEL)) {
+  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, hotspotChannel)) {
     Serial.println("ERROR: Could not start WasteCamera hotspot");
     return;
   }
-  if (WiFi.channel() != WIFI_CHANNEL) {
-    Serial.printf("Hotspot came up on channel %d, forcing %u\n", WiFi.channel(), WIFI_CHANNEL);
-    esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  if (WiFi.channel() != hotspotChannel) {
+    Serial.printf("Hotspot came up on channel %d, forcing %u\n", WiFi.channel(), hotspotChannel);
+    esp_wifi_set_channel(hotspotChannel, WIFI_SECOND_CHAN_NONE);
   }
   Serial.print("Hotspot: "); Serial.println(AP_SSID);
   Serial.print("Setup page: http://"); Serial.print(WiFi.softAPIP());
@@ -872,14 +889,17 @@ void startWifi() {
   wifiPrefs.begin("waste-wifi", true);
   savedSSID = wifiPrefs.getString("ssid", "");
   savedPassword = wifiPrefs.getString("pass", "");
+  chanSetting = wifiPrefs.getUChar("chan", WIFI_CHANNEL);
   wifiPrefs.end();
+  if (chanSetting > 13) chanSetting = WIFI_CHANNEL;
+  hotspotChannel = chanSetting ? chanSetting : WIFI_CHANNEL;
 
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, WIFI_CHANNEL)) {
+  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, hotspotChannel)) {
     Serial.println("ERROR: Could not start WasteCamera hotspot");
   }
 
@@ -889,41 +909,46 @@ void startWifi() {
     return;
   }
 
-  Serial.printf("Connecting to saved Wi-Fi: %s (channel %u only)\n", savedSSID.c_str(), WIFI_CHANNEL);
+  if (chanSetting) Serial.printf("Connecting to saved Wi-Fi: %s (channel %u only)\n", savedSSID.c_str(), chanSetting);
+  else Serial.printf("Connecting to saved Wi-Fi: %s (following its channel)\n", savedSSID.c_str());
   // The channel argument is only a scan hint; the station still joins the router
   // on whatever channel it is. The check below drops a router on another channel.
-  WiFi.begin(savedSSID.c_str(), savedPassword.c_str(), WIFI_CHANNEL);
+  if (chanSetting) WiFi.begin(savedSSID.c_str(), savedPassword.c_str(), chanSetting);
+  else WiFi.begin(savedSSID.c_str(), savedPassword.c_str());
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
     delay(250);
   }
-  if (WiFi.status() == WL_CONNECTED && WiFi.channel() != WIFI_CHANNEL) {
+  if (WiFi.status() == WL_CONNECTED && chanSetting && WiFi.channel() != chanSetting) {
     Serial.printf("Router %s is on channel %d, not %u. Dropping it to keep WasteCamera on channel %u.\n",
-                  savedSSID.c_str(), WiFi.channel(), WIFI_CHANNEL, WIFI_CHANNEL);
+                  savedSSID.c_str(), WiFi.channel(), chanSetting, chanSetting);
     holdHotspot();
   } else if (WiFi.status() == WL_CONNECTED) {
     WiFi.setAutoReconnect(true);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
     Serial.print("Wi-Fi connected. Camera URL: http://");
     Serial.println(WiFi.localIP());
+    Serial.printf("Channel %d%s\n", WiFi.channel(), chanSetting ? "" : " (following router)");
     Serial.print("Hotspot remains at http://");
     Serial.println(WiFi.softAPIP());
   } else {
-    Serial.printf("Wi-Fi connection failed, status=%d. Keeping WasteCamera on channel %u (router must use this channel).\n", (int)WiFi.status(), WIFI_CHANNEL);
+    Serial.printf("Wi-Fi connection failed, status=%d. Keeping WasteCamera on channel %u.\n", (int)WiFi.status(), hotspotChannel);
     holdHotspot();
   }
   initEspNow();
 }
 
 // Auto-reconnect can rejoin the router after it moved to another channel, which
-// drags the hotspot and ESP-NOW with it. Drop the router if that happens.
+// drags the hotspot and ESP-NOW with it. Drop the router if that happens, unless
+// the portal is set to follow the router (the controller rescans to find us).
 void enforceChannel() {
+  if (!chanSetting) return;
   static uint32_t last_check = 0;
   if (millis() - last_check < 5000) return;
   last_check = millis();
   if (WiFi.getMode() != WIFI_AP_STA || WiFi.status() != WL_CONNECTED) return;
-  if (WiFi.channel() == WIFI_CHANNEL) return;
-  Serial.printf("Router moved to channel %d. Dropping it to stay on channel %u.\n", WiFi.channel(), WIFI_CHANNEL);
+  if (WiFi.channel() == chanSetting) return;
+  Serial.printf("Router moved to channel %d. Dropping it to stay on channel %u.\n", WiFi.channel(), chanSetting);
   esp_now_deinit();
   espnow_ready = false;
   holdHotspot();
